@@ -29,116 +29,91 @@ jobs:
                       number
                       headRefName
                       baseRefName
-                      author {
-                        login
-                      }
-                      repository {
-                        name
-                      }
+                      author { login }
+                      repository { name }
                       mergeable
-                      labels(first: 10) {
-                        nodes {
-                          name
-                        }
-                      }
-                      reviews(last: 1) {
-                        nodes {
-                          state
-                        }
-                      }
+                      labels(first: 10) { nodes { name } }
+                      reviews(last: 1) { nodes { state } }
                     }
                   }
                 }
               }
             }`
 
-            const variables = {
-              owner: context.repo.owner,
-              name: context.repo.repo,
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+
+            // ---------- low-level API helpers ----------
+            async function comment(pr, body) {
+              try {
+                await github.rest.issues.createComment({ ...repo, issue_number: pr.number, body });
+                console.log(`PR #${pr.number} 코멘트 추가: "${body}"`);
+              } catch (e) {
+                console.log(`PR #${pr.number} 코멘트 실패:`, e);
+              }
             }
 
-            const {repository:{pullRequests:{edges: list}}} = await github.graphql(query, variables)
+            async function closePR(pr) {
+              await github.rest.pulls.update({ ...repo, pull_number: pr.number, state: "closed" });
+            }
 
-            for (let {node} of list) {
-              console.log("\n----------------------------------------");
-              console.log(`PR #${node.number} 처리 시작`);
-              console.log(`PR node 정보: ${JSON.stringify(node, null, 2)}`);
+            async function mergePR(pr) {
+              await github.rest.pulls.merge({ ...repo, pull_number: pr.number, merge_method: "merge" });
+            }
 
-              if (node.baseRefName === "main") {
-                console.log(`PR #${node.number}: main 브랜치로 요청함`);
-                try {
-                  await github.rest.issues.createComment({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: node.number,
-                      body: "main 브랜치로 병합 시도"
-                  });
-                  console.log(`PR #${node.number}에 main브랜치 코멘트 추가 완료`);
-                } catch (e) {
-                  console.log(`PR #${node.number}에 main브랜치 코멘트 추가 실패:`, e);
-                }
-                continue;
+            // ---------- predicates ----------
+            const isTargetingMain     = (pr) => pr.baseRefName === "main";
+            const hasReviewLabel      = (pr) => pr.labels.nodes.some(l => l.name.toLowerCase() === "review");
+            const isChangesRequested  = (pr) => pr.reviews?.nodes?.[0]?.state === "CHANGES_REQUESTED";
+            const isConflicting       = (pr) => pr.mergeable === "CONFLICTING";
+
+            // ---------- actions ----------
+            async function skipMain(pr) {
+              await comment(pr, "main 브랜치로 병합 시도");
+            }
+
+            async function skipReviewLabel(pr) {
+              // 코멘트 없이 로그만 (기존 동작 유지)
+            }
+
+            async function deferChangesRequested(pr) {
+              await comment(pr, "변경 요청 중인 브랜치의 머지를 연기합니다.");
+            }
+
+            async function closeOnConflict(pr) {
+              try {
+                await closePR(pr);
+                await comment(pr, "충돌로 인해 자동 병합이 불가능합니다.");
+              } catch (e) {
+                console.log(`PR #${pr.number} 충돌 close 처리 실패:`, e);
               }
+            }
 
-              const hasSkipLabel = node.labels.nodes.some(label => label.name.toLowerCase() === 'review');
-              if (hasSkipLabel) {
-                console.log(`PR #${node.number}: 'review' 라벨이 있어 병합 생략`);
-                continue;
+            async function mergeIfReady(pr) {
+              try {
+                await mergePR(pr);
+                console.log(`PR #${pr.number} 병합 완료`);
+              } catch (e) {
+                console.log(`PR #${pr.number} 병합 실패:`, e);
               }
+            }
 
-              if (node.reviews?.nodes?.[0]?.state === "CHANGES_REQUESTED") {
-                console.log(`PR #${node.number}: 변경 요청 상태, 병합 연기`);
-                try {
-                  await github.rest.issues.createComment({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: node.number,
-                      body: "변경 요청 중인 브랜치의 머지를 연기합니다."
-                  });
-                  console.log(`PR #${node.number}에 변경 요청 상태 코멘트 추가 완료`);
-                } catch (e) {
-                  console.log(`PR #${node.number}에 변경 요청 상태 코멘트 추가 실패:`, e);
-                }
-                continue;
-              }
+            // ---------- rules (배열 순서 = 우선순위) ----------
+            const rules = [
+              { name: "main 브랜치 타겟 → 스킵",   match: isTargetingMain,     run: skipMain              },
+              { name: "review 라벨 → 스킵",        match: hasReviewLabel,      run: skipReviewLabel       },
+              { name: "변경 요청 상태 → 연기",     match: isChangesRequested,  run: deferChangesRequested },
+              { name: "충돌 → close",              match: isConflicting,       run: closeOnConflict       },
+            ];
+            const defaultRule = { name: "조건 통과 → 머지", match: () => true, run: mergeIfReady };
 
-              if (node.mergeable === "CONFLICTING") {
-                try {
-                  console.log(`PR #${node.number}: 충돌상황 closed 처리 시작`);
-                  
-                  // PR 닫기 로직
-                  await github.rest.pulls.update({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: node.number,
-                    state: "closed"
-                  });
-                  console.log(`PR #${node.number} 충돌상황 closed 처리 완료`);
-                  
-                  // 충돌 코멘트 추가
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: node.number,
-                    body: "충돌로 인해 자동 병합이 불가능합니다."
-                  });
-                  console.log(`PR #${node.number}에 충돌 코멘트 추가 완료`);
-                  
-                  } catch (e) {
-                    console.log(`PR #${node.number}에 충돌 closed 처리 중 에러 발생:`, e);
-                  }
-              } else {
-                console.log(`PR #${node.number} 병합 시작`);
-                try {
-                  await github.rest.pulls.merge({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: node.number,
-                    merge_method: "merge"
-                  });
-                  console.log(`PR #${node.number} 병합 완료`);
-                } catch (e) {
-                  console.log(`PR #${node.number} 병합 실패:`, e);
-                }
-              }
+            // ---------- main ----------
+            const { repository: { pullRequests: { edges: list } } } = await github.graphql(query, {
+              owner: repo.owner,
+              name: repo.repo,
+            });
+
+            for (const { node: pr } of list) {
+              const rule = rules.find(r => r.match(pr)) ?? defaultRule;
+              console.log(`\n---- PR #${pr.number} → ${rule.name}`);
+              await rule.run(pr);
             }
