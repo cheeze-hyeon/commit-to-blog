@@ -1,9 +1,14 @@
+// dotenv must load before any other module that reads process.env at import time
+import dotenv from 'dotenv';
+dotenv.config({ path: '../.env' });
+
 import express from 'express';
 import session from 'express-session';
 import cors from 'cors';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '../.env' });
+import authRouter from './routes/auth';
+import githubRouter from './routes/github';
+import generateRouter from './routes/generate';
+import postsRouter from './routes/posts';
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
@@ -22,6 +27,11 @@ app.use(
     },
   })
 );
+
+app.use('/auth', authRouter);
+app.use('/api', githubRouter);
+app.use('/api/generate', generateRouter);
+app.use('/api/posts', postsRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
