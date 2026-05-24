@@ -113,3 +113,10 @@
 .titleInput:focus {
   box-shadow: 0 0 0 2px var(--blue), var(--shadow-sm);
 }
+
+.loading {
+  color: var(--text-2);
+  font-size: 0.9rem;
+  padding: 40px 0;
+  text-align: center;
+}

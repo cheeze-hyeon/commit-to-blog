@@ -96,3 +96,9 @@
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+.error {
+  color: #e53e3e;
+  font-size: 0.88rem;
+  margin-bottom: 16px;
+}

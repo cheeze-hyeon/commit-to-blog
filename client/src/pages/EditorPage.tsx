@@ -1,39 +1,51 @@
-import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import RichEditor from '../components/RichEditor';
-import { mockPosts } from '../mocks';
+import { fetchPost, updatePost } from '../api/posts';
 import type { PostStatus } from '../types';
 import styles from './EditorPage.module.css';
 
-const MOCK_DRAFT_CONTENT = `<h1>AI가 생성한 블로그 초안</h1>
-<p>이 초안은 선택하신 커밋들을 분석해 자동으로 생성되었습니다. 자유롭게 수정해 주세요.</p>
-<h2>구현 내용</h2>
-<p>이번 작업에서는 JWT 기반 인증 미들웨어를 구현했습니다.</p>
-<pre><code>const verifyToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  // ...
-};</code></pre>
-<h2>마무리</h2>
-<p>추가로 개선할 내용이 있다면 직접 수정해 주세요.</p>`;
-
 export default function EditorPage() {
   const { id } = useParams();
-  const existingPost = id ? mockPosts.find((p) => p.id === id) : null;
-
-  const [title, setTitle] = useState(existingPost?.title ?? '');
-  const [content, setContent] = useState(existingPost?.content ?? MOCK_DRAFT_CONTENT);
-  const [status, setStatus] = useState<PostStatus>(existingPost?.status ?? 'draft');
+  const navigate = useNavigate();
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [status, setStatus] = useState<PostStatus>('draft');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) {
+      setIsLoading(false);
+      return;
+    }
+    fetchPost(id)
+      .then((post) => {
+        setTitle(post.title);
+        setContent(post.content);
+        setStatus(post.status);
+      })
+      .finally(() => setIsLoading(false));
+  }, [id]);
 
   const handleSave = async (newStatus: PostStatus) => {
+    if (!id) return;
     setIsSaving(true);
-    // 2주차에 실제 API 연결
-    await new Promise((r) => setTimeout(r, 800));
-    setStatus(newStatus);
-    setIsSaving(false);
-    alert(newStatus === 'published' ? '발행 완료!' : '임시저장 완료!');
+    try {
+      const updated = await updatePost(id, { title, content, status: newStatus });
+      setStatus(updated.status);
+      alert(newStatus === 'published' ? '발행 완료!' : '임시저장 완료!');
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  if (isLoading) return <p className={styles.loading}>불러오는 중...</p>;
+
+  if (!id) {
+    navigate('/posts');
+    return null;
+  }
 
   return (
     <div className={styles.page}>
@@ -45,11 +57,7 @@ export default function EditorPage() {
           </span>
         </div>
         <div className={styles.actions}>
-          <button
-            className={styles.draftBtn}
-            onClick={() => handleSave('draft')}
-            disabled={isSaving}
-          >
+          <button className={styles.draftBtn} onClick={() => handleSave('draft')} disabled={isSaving}>
             임시저장
           </button>
           <button

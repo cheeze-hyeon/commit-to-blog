@@ -4,6 +4,7 @@ import styles from './PostCard.module.css';
 
 interface Props {
   post: Post;
+  onDelete?: (id: string) => void;
 }
 
 function formatDate(iso: string) {
@@ -19,7 +20,7 @@ function excerpt(content: string, maxLen = 100) {
   return plain.length > maxLen ? plain.slice(0, maxLen) + '...' : plain;
 }
 
-export default function PostCard({ post }: Props) {
+export default function PostCard({ post, onDelete }: Props) {
   const navigate = useNavigate();
 
   return (
@@ -30,11 +31,19 @@ export default function PostCard({ post }: Props) {
         </span>
         <span className={styles.date}>{formatDate(post.updatedAt)}</span>
       </div>
-      <h3 className={styles.title}>{post.title}</h3>
+      <h3 className={styles.title}>{post.title || '(제목 없음)'}</h3>
       <p className={styles.excerpt}>{excerpt(post.content)}</p>
       <div className={styles.footer}>
         <span className={styles.tag}>{post.repoName}</span>
         <span className={styles.tag}>{post.branchName}</span>
+        {onDelete && (
+          <button
+            className={styles.deleteBtn}
+            onClick={(e) => { e.stopPropagation(); onDelete(post.id); }}
+          >
+            삭제
+          </button>
+        )}
       </div>
     </article>
   );

@@ -74,6 +74,19 @@
   background: var(--blue-hover);
 }
 
+.userArea {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 16px;
+}
+
+.userName {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
 /* ── Main ── */
 .main {
   flex: 1;
